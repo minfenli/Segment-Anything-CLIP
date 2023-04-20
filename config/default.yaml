@@ -1,0 +1,9 @@
+similarity_scale: 10
+use_openclip: False
+dowmsample: 8
+image_loc: './images/room.jpg'
+feature_loc: './features/clip/room_8.pt'
+output_dir: './output/'
+query:  ['lamp', 'dog', 'table', 'plant', 'pillow', 'blanket', 'furniture', 'wooden floor', 'couch', 'room', 'drawing']
+use_prompt_ensemble: True
+simularity_threshold: 0.
