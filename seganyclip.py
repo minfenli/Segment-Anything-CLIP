@@ -1,5 +1,4 @@
 import sys
-sys.path.append("..")
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
 import numpy as np
 import open_clip
@@ -8,6 +7,8 @@ from PIL import Image
 import torch
 from tqdm import tqdm
 import os
+import math
+import cv2
 
 class SegmentAnything:
     def __init__(self, 
@@ -135,6 +136,16 @@ class AutoSegmentAnything:
             min_mask_region_area = 100
         )
 
+        # self.generator = SamAutomaticMaskGenerator(
+        #     model=self.sam,
+        #     points_per_side=64,
+        #     pred_iou_thresh=0.8,
+        #     stability_score_thresh=0.8,
+        #     crop_n_layers=0,
+        #     crop_n_points_downscale_factor=0,
+        #     min_mask_region_area=100,  # Requires open-cv to run post-processing
+        # )
+
         self.device = device
 
     def set_image(self, image):
@@ -164,42 +175,84 @@ class CLIP:
             text_features /= text_features.norm(dim=-1, keepdim=True)
         return text_features
 
-    def predict_similarity_objects_with_feature_attention(self, image_features, text, prompt_ensemble=False):
-        text_features = self.encode_text(text) if not prompt_ensemble else self.encode_text_with_prompt_ensemble(text)
-        
-        # image features similarity of each object with text features
-        feature_similarity = self.similarity_scale * (image_features @ text_features.T)
-        feature_similarity = torch.moveaxis(feature_similarity, -1, 0).softmax(axis=-1)
-        
-        # print(image_features.shape, feature_similarity.shape)
-        #     [33, 50, 3, 512],     [1, 33, 50, 3]
-            
-        image_features = (image_features[None,...] * feature_similarity[...,None]).sum(axis=-2)
-        
-        # overall similarity of objects (that detected from a pixel) with the text prompt
-        similarity = self.similarity_scale * (image_features @ text_features.T)
-        
-        text_probs = similarity.softmax(dim=-1)
-        
-        # similarity (len(text), len(text)): similarity scores when each text as input
-        # text_probs (len(text), len(text)): image probs relating per text when each text as input (total 100%)
-        return similarity, text_probs
-
     def encode_text_with_prompt_ensemble(self, text_list, prompt_templates=None):
         # using default prompt templates for ImageNet
         if prompt_templates == None:
-            prompt_templates = ['a bad photo of a {}.', 'a photo of many {}.', 'a sculpture of a {}.', 'a photo of the hard to see {}.', 'a low resolution photo of the {}.', 'a rendering of a {}.', 'graffiti of a {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a tattoo of a {}.', 'the embroidered {}.', 'a photo of a hard to see {}.', 'a bright photo of a {}.', 'a photo of a clean {}.', 'a photo of a dirty {}.', 'a dark photo of the {}.', 'a drawing of a {}.', 'a photo of my {}.', 'the plastic {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a painting of the {}.', 'a painting of a {}.', 'a pixelated photo of the {}.', 'a sculpture of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a plastic {}.', 'a photo of the dirty {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a rendering of the {}.', 'a {} in a video game.', 'a photo of one {}.', 'a doodle of a {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'the origami {}.', 'the {} in a video game.', 'a sketch of a {}.', 'a doodle of the {}.', 'a origami {}.', 'a low resolution photo of a {}.', 'the toy {}.', 'a rendition of the {}.', 'a photo of the clean {}.', 'a photo of a large {}.', 'a rendition of a {}.', 'a photo of a nice {}.', 'a photo of a weird {}.', 'a blurry photo of a {}.', 'a cartoon {}.', 'art of a {}.', 'a sketch of the {}.', 'a embroidered {}.', 'a pixelated photo of a {}.', 'itap of the {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a plushie {}.', 'a photo of the nice {}.', 'a photo of the small {}.', 'a photo of the weird {}.', 'the cartoon {}.', 'art of the {}.', 'a drawing of the {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'the plushie {}.', 'a dark photo of a {}.', 'itap of a {}.', 'graffiti of the {}.', 'a toy {}.', 'itap of my {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'a tattoo of the {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.']
+            # prompt_templates = ['a bad photo of a {}.', 'a photo of many {}.', 'a sculpture of a {}.', 'a photo of the hard to see {}.', 'a low resolution photo of the {}.', 'a rendering of a {}.', 'graffiti of a {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a tattoo of a {}.', 'the embroidered {}.', 'a photo of a hard to see {}.', 'a bright photo of a {}.', 'a photo of a clean {}.', 'a photo of a dirty {}.', 'a dark photo of the {}.', 'a drawing of a {}.', 'a photo of my {}.', 'the plastic {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a painting of the {}.', 'a painting of a {}.', 'a pixelated photo of the {}.', 'a sculpture of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a plastic {}.', 'a photo of the dirty {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a rendering of the {}.', 'a {} in a video game.', 'a photo of one {}.', 'a doodle of a {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'the origami {}.', 'the {} in a video game.', 'a sketch of a {}.', 'a doodle of the {}.', 'a origami {}.', 'a low resolution photo of a {}.', 'the toy {}.', 'a rendition of the {}.', 'a photo of the clean {}.', 'a photo of a large {}.', 'a rendition of a {}.', 'a photo of a nice {}.', 'a photo of a weird {}.', 'a blurry photo of a {}.', 'a cartoon {}.', 'art of a {}.', 'a sketch of the {}.', 'a embroidered {}.', 'a pixelated photo of a {}.', 'itap of the {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a plushie {}.', 'a photo of the nice {}.', 'a photo of the small {}.', 'a photo of the weird {}.', 'the cartoon {}.', 'art of the {}.', 'a drawing of the {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'the plushie {}.', 'a dark photo of a {}.', 'itap of a {}.', 'graffiti of the {}.', 'a toy {}.', 'itap of my {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'a tattoo of the {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.']
+            # easier ones
+            prompt_templates = ['a photo of a {}.', 'This is a photo of a {}', 'This is a photo of a small {}', 'This is a photo of a medium {}', 'This is a photo of a large {}', 'This is a photo of a {}', 'This is a photo of a small {}', 'This is a photo of a medium {}', 'This is a photo of a large {}', 'a photo of a {} in the scene', 'a photo of a {} in the scene', 'There is a {} in the scene', 'There is the {} in the scene', 'This is a {} in the scene', 'This is the {} in the scene', 'This is one {} in the scene']
 
-        text_features = []
-        for t in text_list:
-            prompted_t = [template.format(t) for template in prompt_templates]
-            class_embeddings = self.encode_text(prompted_t)
-            class_embedding = class_embeddings.mean(dim=0)
-            class_embedding /= class_embedding.norm()
-            text_features.append(class_embedding)
-        text_features = torch.stack(text_features, dim=0)
+        with torch.no_grad():
+            text_features = []
+            for t in text_list:
+                prompted_t = [template.format(t) for template in prompt_templates]
+                class_embeddings = self.encode_text(prompted_t)
+                class_embedding = class_embeddings.mean(dim=0)
+                class_embedding /= class_embedding.norm()
+                text_features.append(class_embedding)
+            text_features = torch.stack(text_features, dim=0)
 
         return text_features
+    
+    def predict_similarity_objects_with_feature_attention_batch(self, image_features, text, prompt_ensemble=False, batch_size=1024, top_k=1, threshold=0., projection=None):
+
+        # use prompt templetes to prompt input texts
+        text_features = self.encode_text(text) if not prompt_ensemble else self.encode_text_with_prompt_ensemble(text)
+        if projection is not None:
+            text_features = projection(text_features.float()).half()
+        
+        image_shape = image_features.shape[:2]
+        
+        batches = self.separate_image_features_batches(image_features, batch_size)
+        batches_similarity = [[] for _ in range(top_k)]
+        
+        for image_features in batches:
+            # don't need  fuse features if only one dim.
+            if image_features.shape[-2] != 1:
+                feature_similarity = self.similarity_scale * (image_features @ text_features.T)
+                feature_similarity = torch.moveaxis(feature_similarity, -1, 0).softmax(axis=-1)
+
+                image_features = (image_features[None,...] * feature_similarity[...,None]).sum(axis=-2)
+                # overall similarity of objects (that detected from a pixel) with the text prompt
+                similarity = self.similarity_scale * (image_features @ text_features.T)
+                similarity = torch.stack([similarity[i, ..., i] for i in range(len(similarity))])
+            else:
+                similarity = torch.moveaxis((image_features @ text_features.T), -1, 0).squeeze(-1)
+                
+            for i in range(top_k):
+                similarity_max = similarity.max(0).values
+                similarity_argmax = similarity.argmax(0)
+                similarity[similarity_argmax] = -1
+                similarity_argmax[similarity_max <= threshold] = -1
+                batches_similarity[i].append(similarity_argmax.cpu())
+            
+        similarity_argmax = [self.merge_image_features_batches(batches_similarity[i], image_shape) for i in range(top_k)]
+
+        # similarity (len(text), len(text)): similarity scores when each text as input (input_text_for_attention, H, W, relation_with_each_text)
+        return similarity_argmax
+    
+    @staticmethod
+    def separate_image_features_batches(image_features, batch_size=1024):
+        H, W = image_features.shape[:2]
+        image_features = image_features.reshape(H*W, *image_features.shape[2:])
+        batch_indices = []
+        idx = 0
+        while idx < H*W:
+            batch_indices.append((idx, min(idx+batch_size, H*W)))
+            idx += batch_size
+            
+        batches = []
+        for start, end in batch_indices:
+            batches.append(image_features[start:end])
+        
+        return batches
+    
+    @staticmethod 
+    def merge_image_features_batches(batches, image_shape):
+        H, W = image_shape
+        image_features = torch.cat(batches, axis=0)
+        
+        return image_features.reshape(H, W, *image_features.shape[1:])
 
 
 class OpenAICLIP(CLIP):
@@ -312,10 +365,92 @@ class AutoSegAnyCLIP:
         self.zeros = torch.zeros((1, self.clip_n_dims), device=device).half()
         self.device = device
     
-    def encode_image(self, bbox_crop=False, extent_segmentation_mask=0):
+    def encode_image(self, bbox_crop=False, extent_segmentation_mask=0, blur=False):
         # predect per-pixels features for 'image' in 'SegmentAnything' based on predicted objects
-        # mask out pixels that are not related to objects if 'without_mask'==False
-        # crop rectangles related to objects if 'without_mask'==True
+        # mask out pixels that are not related to objects if 'bbox_crop'==False
+        # crop rectangles related to objects if 'bbox_crop'==True
+        # extent_segmentation_mask: extent pixels of an area from each segmentation mask for bigger coverage
+        # output shape: (H, W, clip_n_dims, n_objs)
+
+        image = self.segany.image
+        
+        H, W, _ = image.shape
+        
+        image_pixel_embeddings = []
+
+        masks = self.segany.generate_masks()
+
+        check_mask_covered = torch.zeros(image.shape[:2])
+
+        for i, mask in enumerate(masks):
+            masks[i]['segmentation'] = self.segmentmap_extent_multi(mask['segmentation'], extent_segmentation_mask)
+            check_mask_covered[masks[i]['segmentation']] = 1
+
+        point_to_mask = {}
+        for y in range(H):
+            for x in range(W):
+                point_to_mask[(x, y)] = []
+        for i, mask in enumerate(masks):
+            ys, xs = np.where(mask['segmentation'])
+            for x, y in zip(xs, ys):
+                point_to_mask[(x, y)] += [i]
+
+        objects = []
+        object_scores = []
+        object_areas = []
+
+        background_color = np.array([255.,255.,255.])*0.
+
+        for i, mask in enumerate(masks):
+            image_object = image.copy().astype('float')
+            if bbox_crop:
+                if blur:
+                    image_blur = cv2.GaussianBlur(image_object, (5, 5), 0)
+                    image_object[np.logical_not(mask['segmentation'])] = image_blur[np.logical_not(mask['segmentation'])]
+                image_object[np.logical_not(mask['segmentation'])] *= 0.75
+                image_object[np.logical_not(mask['segmentation'])] += background_color * 0.25
+            else:
+                image_object[np.logical_not(mask['segmentation'])] = background_color
+            image_object = image_object.astype('uint8')
+            xmin, ymin, xmax, ymax = self.from_mask_to_bbox(mask['segmentation'], extent=0.01)
+            image_object = image_object[ymin:ymax+1, xmin:xmax+1]
+            objects.append(image_object)
+            object_scores.append(mask['predicted_iou'])
+            object_areas.append(mask['area'])
+        
+        for point in point_to_mask.keys():
+            point_to_mask[point] = sorted(point_to_mask[point], key=lambda x: (object_areas[x], object_scores[x]), reverse=True)
+
+        objects_embeddings = []
+        for single_object in objects:
+            objects_embeddings.append(self.clip.encode_image(single_object))
+
+        # self.zeros = self.clip.encode_image(image)
+        # with torch.no_grad():
+        #     image_crop = image.copy()
+        #     mask_covered = (check_mask_covered==1)
+        #     mask_not_covered = (check_mask_covered==0)
+        #     image_crop[mask_covered] = (0, 0, 0)
+        #     if mask_not_covered.any():
+        #         xmin, ymin, xmax, ymax = self.from_mask_to_bbox(mask_not_covered)
+        #         image_crop = image_crop[ymin:ymax+1, xmin:xmax+1]
+        #     self.zeros = self.clip.encode_image(image_crop)
+            
+        image_pixel_embeddings = []
+        for y in range(H):
+            for x in range(W):
+                pixel_embeddings = [objects_embeddings[object_id] for object_id in point_to_mask[(x, y)][:self.n_objs]]
+                for i in range(self.n_objs-len(pixel_embeddings)):
+                    pixel_embeddings.append(self.zeros)
+                image_pixel_embeddings.append(torch.cat(pixel_embeddings, axis=0))
+        image_pixel_embeddings = torch.cat(image_pixel_embeddings, axis=0).reshape(H, W, self.n_objs, self.clip_n_dims)
+
+        return image_pixel_embeddings
+    
+    def encode_image_concept_fusion(self, bbox_crop=False, extent_segmentation_mask=0):
+        # predect per-pixels features for 'image' in 'SegmentAnything' based on predicted objects
+        # mask out pixels that are not related to objects if 'bbox_crop'==False
+        # crop rectangles related to objects if 'bbox_crop'==True
         # extent_segmentation_mask: extent pixels of area from each segmentation mask for bigger coverage
         # output shape: (H, W, clip_n_dims, n_objs)
 
@@ -359,21 +494,43 @@ class AutoSegAnyCLIP:
         for single_object in objects:
             objects_embeddings.append(self.clip.encode_image(single_object))
             
+        image_embeddings = self.clip.encode_image(image)
+        objects_embeddings = torch.cat(objects_embeddings, axis=0)
+        objects_local_global_similarity = (image_embeddings @ objects_embeddings.T).squeeze(0)
+        objects_cross_similarity = (objects_embeddings @ objects_embeddings.T)
+        objects_self_similarity = torch.stack([objects_cross_similarity[i, i] for i in range(len(objects_cross_similarity))])
+        objects_avg_cross_similarity = ((objects_cross_similarity.sum(axis=-1) - objects_self_similarity)) / (len(objects_cross_similarity)-1)
+        
+        t = 1
+        w_global = ((objects_local_global_similarity + objects_avg_cross_similarity)/t).softmax(-1)
+
+        objects_embeddings_fusion = ((w_global[:, None] * image_embeddings) + ((1 - w_global[:, None])*objects_embeddings))
+        objects_embeddings_fusion /= objects_embeddings_fusion.norm(dim=-1, keepdim=True)
+        
         image_pixel_embeddings = []
         for y in range(H):
             for x in range(W):
-                pixel_embeddings = [objects_embeddings[object_id] for object_id in point_to_mask[(x, y)][:self.n_objs]]
+                pixel_embeddings = [objects_embeddings_fusion[object_id][None, :] for object_id in point_to_mask[(x, y)][:self.n_objs]]
                 for i in range(self.n_objs-len(pixel_embeddings)):
                     pixel_embeddings.append(self.zeros)
                 image_pixel_embeddings.append(torch.cat(pixel_embeddings, axis=0))
         image_pixel_embeddings = torch.cat(image_pixel_embeddings, axis=0).reshape(H, W, self.n_objs, self.clip_n_dims)
 
-        return image_pixel_embeddings 
+        return image_pixel_embeddings
 
     @staticmethod
-    def from_mask_to_bbox(mask):
+    def from_mask_to_bbox(mask, extent=0, sqrt=False):
+        H, W = mask.shape[:2]
         mask_indices = np.where(mask)
         xmin, ymin, xmax, ymax = min(mask_indices[1]), min(mask_indices[0]), max(mask_indices[1]), max(mask_indices[0])
+        if extent > 0:
+            if sqrt:
+                x_extent, y_extent = math.ceil(math.sqrt((xmax-xmin)*extent)), math.ceil(math.sqrt((ymax-ymin)*extent))
+                # x_extent, y_extent = max(x_extent, y_extent), max(x_extent, y_extent)
+            else:
+                x_extent, y_extent = math.ceil((xmax-xmin)*extent), math.ceil((ymax-ymin)*extent)
+                # x_extent, y_extent = max(x_extent, y_extent), max(x_extent, y_extent)
+            xmin, ymin, xmax, ymax = max(xmin-x_extent, 0), max(ymin-y_extent, 0), min(xmax+x_extent, W-1), min(ymax+y_extent, H-1)
         return xmin, ymin, xmax, ymax
 
     @staticmethod

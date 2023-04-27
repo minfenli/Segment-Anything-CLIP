@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_name', type=str, required=True, help="file name of image features")
     parser.add_argument('--downsample', default=8, type=int, help='the scale of downsampling on the input image.')
     parser.add_argument('--openclip', default=False, type=bool, help='using OpenCLIP as feature extractor instead of openai-CLIP.')
-    parser.add_argument('--bbox_crop', default=False, type=bool, help='using bbox instead of segmentation mask to crop the mask before encoding.')
+    parser.add_argument('--bbox_crop', default=True, type=bool, help='using bbox instead of segmentation mask to crop the mask before encoding.')
     parser.add_argument('--checkpoint_dir', default='', type=str, help='path to the directory of SAM checkpoints.')
     parser.add_argument('--model_type', default='default', type=str, help='the type of the SAM.')
 

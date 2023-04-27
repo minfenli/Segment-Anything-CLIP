@@ -3,20 +3,21 @@ This repository aims to generate per-pixel features using pretrained models, [Se
 
 Here, we show open-vocabulary segmentation without any training and finetuning.
 
-<img width="400" alt="image" src="./images/room.jpg">
+| Input Image | Segment Segmentation|
+| :---: | :---:|
+| <img width="400" alt="image" src="./images/room.jpg"> | <img width="400" alt="image" src="./images/demo_room.png">|
 
-<img width="400" alt="image" src="./images/demo_room.png">
 
 ## Prepare
 1. You may need to install [Segment-Anything](https://github.com/facebookresearch/segment-anything) and [CLIP](https://github.com/openai/CLIP) (or, [OpenCLIP](https://github.com/mlfoundations/open_clip)).
 2. Download one of [SAM](https://github.com/facebookresearch/segment-anything#model-checkpoints) checkpoints from the SAM repository.
 
 ## Demo
-You can firstly generate per-pixel features of an image.
+You can generate per-pixel features of an image.
 ```
 python feature_autogenerator.py --image_path {image_path} --output_path {output_path} --output_name {feature_file_name} --checkpoint_dir {checkpoint_dir}
 ```
-Generate segmentation results by the given config file.
+Or directly generate segmentation results by the given config file.
 ```
 python segment.py --config_path {config_path}
 ```

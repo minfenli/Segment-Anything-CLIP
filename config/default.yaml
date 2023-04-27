@@ -1,9 +1,13 @@
-similarity_scale: 10
 use_openclip: False
 dowmsample: 8
+batch_size: 1024
+sam_checkpoint_loc: './checkpoints/'
 image_loc: './images/room.jpg'
-feature_loc: './features/clip/room_8.pt'
+feature_loc: './room_8.pt'
+replace_feature: True
 output_dir: './output/'
 query:  ['lamp', 'dog', 'table', 'plant', 'pillow', 'blanket', 'furniture', 'wooden floor', 'couch', 'room', 'drawing']
 use_prompt_ensemble: True
-simularity_threshold: 0.
+top_k: 2
+resolution: 3
+similarity_threshold: 0.
